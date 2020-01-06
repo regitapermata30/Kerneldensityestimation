@@ -1,0 +1,218 @@
+---
+title: "Regresi Nonparametrik"
+author: "Regita Putri Permata"
+date: "23/9/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Tugas SML Regresi Nonparametrik
+Tugas yang diberikan merujuk pada SPMbook halaman 126. Dalam regresi nonparametrik bentuk kurva regresi tidak diketahui, maka data diharapkan mencari sendiri bentuk estimasinya sehingga memiliki fleksibelitas yang tinggi. Kurva regresi hanya diasumsikan termuat dalam suatu ruang fungsi yang berdimensi tak hingga dan merupakan fungsi (smooth). Model umum regresi nonparametric adalah  $y_i=m(x_i)+ \varepsilon_i$ dengan $i=1,2,3,\dotsc,n$. Estimasi fungsi $m(x_i)$ dilakukan berdasarkan data pengamatan dengan menggunakan teknik smoothing tertentu. 
+Fungsi regresi diestimasi menggunakan rumus $\hat{m}(x_i)=\frac{1}{n}\sum_{i=1}^{n}W_{hi}(x)Y_i$.
+Estimator Nadaraya Watson : $\frac{K_h{(x-X_i)}}{\hat{f}_h(x)}$
+
+### Simulasi Data
+Untuk mensiumulasikan kernel regresi nonparametrik, dilakukan pembangkitan data dengan kurva $m(x)$= $\sin(2\pi x^3 )^3$, $Y_i=m(X_i)+\varepsilon_i$, dan $X_i$ berdistribusi $U[0,1]$ serta $\varepsilon_i$ berdistribusi $N(0,0.1)$.
+Berikut merupakan bentuk plot random data
+
+
+```{r plot}
+set.seed(12345)
+n <- 500
+eps <- rnorm(n, mean=0,sd = 0.1)
+m <- function(x) (sin(2*pi*x^3))^3
+
+X <- runif(n,min=0,max=1)
+Y <- m(X) + eps
+plot(X,Y,pch=20)
+```
+
+Dari plot menunjukkan bahwa pola nonlinier.Untuk mengestimasi data berbentuk nonlinier, digunakan kernel regression dengan teknik regresi nonparametrik. Dalam melakukan regresi kernel, terdapat dua konfigurasi yaitu fungsi kernel dan ukuran bandwidth. Bandwidth (h) adalah parameter (smoothing) yang berfungsi untuk mengontrol kemulusan dari kurva yang diestimasi. Bandwidth yang terlalu kecil akan menghasilkan kurva yang *under-smoothing* yaitu sangat kasar dan sangat fluktuatif, dan sebaliknya bandwidth yang terlalu lebar akan menghasilkan kurva yang over-smoothing yaitu sangat smooth, tetapi tidak sesuai dengan pola data (Hardle, 1994). Oleh karena itu perlu dipilih bandwidth yang optimal menggunakan Cross Validation.
+
+Apabila dilakukan perbandingan beberapa bandwitdh dengan kernel yang sama, maka akan diperoleh plot sebagai berikut :
+
+```{r bandwidth}
+#perbandingan bandwidth
+Kreg1 = ksmooth(x=X,y=Y,kernel = "normal",bandwidth = 0.01)
+Kreg2 = ksmooth(x=X,y=Y,kernel = "normal",bandwidth = 0.03)
+Kreg3 = ksmooth(x=X,y=Y,kernel = "normal",bandwidth = 0.07)
+plot(X,Y,pch=20,main="Nadaraya-Watson Estimator Perbandingan Bandwidth")
+lines(Kreg1, lwd=3, col="orange")
+lines(Kreg2, lwd=3, col="purple")
+lines(Kreg3, lwd=3, col="limegreen")
+legend("bottomleft", c("h=0.01","h=0.03","h=0.07"), lwd=3, col=c("orange","purple","limegreen"),cex=0.8)
+```
+
+Dari plot tersebut terdapat bias-variance tiap plot, ketika h kecil, variabilitasnya besar namun biasnya kecil, dan sebaliknya ketika h besar pada warna hijau, variabilitasnya kecil tapi biasnya besar. Dari perbandingan hasil bandwitdh secara visual, h=0.03 lebih optimum daripada 0.07.
+
+### Cross-Validation Estimator Nadaraya-Watson
+Cross Validation digunakan untuk memperkirakan kesalahan prediksi dari estimasi regresi yang telah dibuat.Selain itu CV dapat digunakan untuk memilih nilai bandwidth($h$) yang optimum. 
+
+```{r cross validation}
+#CV nadaraya-watson
+n = length(X)
+# n: sample size
+h_seq = seq(from=0.01,to=1, by=0.01)
+# smoothing bandwidths we are using
+CV_err_h = rep(NA,length(h_seq))
+for(j in 1:length(h_seq)){
+  h_using = h_seq[j]
+  CV_err = rep(NA, n)
+  for(i in 1:n){
+    X_val = X[i]
+    Y_val = Y[i]
+    # validation set
+    X_tr = X[-i]
+    Y_tr = Y[-i]
+    # training set
+    Y_val_predict = ksmooth(x=X_tr,y=Y_tr,kernel = "normal",bandwidth=h_using, x.points = X_val)
+    CV_err[i] = (Y_val - Y_val_predict$y)^2
+    # we measure the error in terms of difference square
+  }
+  CV_err_h[j] = mean(CV_err)
+}
+CV_err_h
+
+plot(x=h_seq, y=CV_err_h, type="b", lwd=3, col="blue",
+     xlab="Smoothing bandwidth", ylab="LOOCV prediction error")
+h_opt=h_seq[which(CV_err_h == min(CV_err_h))]
+h_opt
+
+```
+
+Dari hasil CV yang telah dihitung, didapatkan nilai h optimum sebesar 0.03.
+
+### Nadaraya-Watson EStimator
+
+Berikutnya, akan dicobakan h=0.03 pada estimator Nadaraya-Watson secara manual dari fungsi regresi $\hat{m}(x_i)=\frac{1}{n}\sum_{i=1}^{n}W_{hi}(x)Y_i$.
+
+```{r regression kernel}
+mNW <- function(x, X, Y, h, K = dnorm) {
+  # x: evaluation points
+  # X: vector (size n) with the predictors
+  # Y: vector (size n) with the response variable
+  # h: bandwidth
+  # K: kernel
+  
+  # Matrix of size n x length(x)
+  Kx <- sapply(X, function(Xi) K((x - Xi) / h) / n*h)
+    # Weights
+  W <- Kx / rowSums(Kx) # Column recycling!
+    # Means at x ("drop" to drop the matrix attributes)
+  drop(W %*% Y)
+  }
+ps <- rnorm(n, mean=0,sd = 0.1)
+m <- function(x) (sin(2*pi*x^3))^3
+
+X <- runif(n,min=0,max=1)
+Y <- m(X) + eps
+xGrid <- seq(-5, 5, l = 700)
+h2 <- 0.03
+# Plot data
+plot(X, Y,pch=20,col="#42b883",ylab="Y,m,mh",main="Plot Nadaraya Watson dan Fit Regression")
+lines(xGrid, m(xGrid), col = 1,lwd=3)
+lines(xGrid, mNW(x = xGrid, X = X, Y = Y, h = h2), col = 2,lwd=3)
+legend("bottom", legend = c("Fit regression", "Nadaraya-Watson Estimator regression h=0.03"),
+       lwd = 3, col = 1:2,cex=0.6)
+
+```
+
+### Local Polynomial Regression Smoothing Method
+
+Estimator Nadaraya-Watson dapat digunakan untuk kasus dengan estimator nonparametrik yang lebih luas, yang disebut estimator polinomial lokal.Simulasi menggunakan library KernSmooth.
+
+```{r Local polynomial regression}
+library(KernSmooth)
+#localpolynomial regression
+plot(X, Y,pch=20,main="Plot Local Polynomial Regression")
+fit <- locpoly(X, Y, bandwidth = 0.02)
+lines(fit,col="green",lwd=3)
+
+```
+Dari hasil perhitungan CV didapatkan bahwa bandwidth optimum sebesar 0.02. Bandwidth yang sesuai dapat meminimumkan bias.
+
+### Spline Regression
+
+Smoothing regression yang lain adalah spline smoothing dengan mempertimbangkan jumlah residual kuadrat yang didefinisikan sebagai $\sum_{i=1}^n\{Y_i-m(X_i)\}^2$, dengan fungsi $m(X_i)=Y_i$ $i=1,2,\dots,n$. $m(X_i)$ diestimasi dengan $\hat{m}_{\lambda}(x)=n^{-1}\sum_{i=1}^nW_{{\lambda_i}}(x)Y_i$. Pada smoothing spline dilakukan optimasi pada spar atau smoothing parameter. Ketika spar ditentukan, koefisien $\lambda$ integral dari turunan kedua kuadrat dalam kriteria fit adalah fungsi monoton dari spar (R).
+
+```{r spline}
+SS1 = smooth.spline(x=X,y=Y,spar=0.2)
+SS2 = smooth.spline(x=X,y=Y,spar=0.7)
+SS3 = smooth.spline(x=X,y=Y,spar=1.2)
+plot(X,Y,pch=20)
+lines(SS1, lwd=3, col="orange")
+lines(SS2, lwd=3, col="purple")
+lines(SS3, lwd=3, col="limegreen")
+legend("bottomleft", c("spar=0.2","spar=0.7","spar=1.2"), lwd=6,
+col=c("orange","purple","limegreen"),cex=0.8)
+
+```
+
+### Cross Validation Spline Regression
+Sama dengan regresi kernel, cross-validasi digunakan untuk menentukan nilai dari spar (smooth parameter).
+
+```{r spline cv}
+n = length(X)
+# n: sample size
+sp_seq = seq(from=0.01,to=1.0, by=0.01)
+# values of spar we are exploring
+CV_err_sp = rep(NA,length(sp_seq))
+for(j in 1:length(sp_seq)){
+spar_using = sp_seq[j]
+CV_err = rep(NA, n)
+for(i in 1:n){
+X_val = X[i]
+Y_val = Y[i]
+# validation set
+X_tr = X[-i]
+Y_tr = Y[-i]
+# training set
+SS_fit = smooth.spline(x=X_tr,y=Y_tr,spar=spar_using)
+Y_val_predict = predict(SS_fit,x=X_val)
+# we use the 'predict()' function to predict a new value
+CV_err[i] = (Y_val - Y_val_predict$y)^2
+}
+CV_err_sp[j] = mean(CV_err)
+}
+CV_err_sp
+plot(x=sp_seq, y=CV_err_sp, type="b", lwd=3, col="blue",
+xlab="Value of 'spar'", ylab="LOOCV prediction error")
+sp_seq[which(CV_err_sp == min(CV_err_sp))]
+
+```
+
+
+Didapatkan spar optimum sebesar 0.55 dan dibuat plot seperti berikut.
+
+```{r spline plot}
+#spline regression
+plot(X,Y,pch=20)
+xm <- data.frame(cbind(X,Y))
+xm <- xm[order(X),]
+mh <- smooth.spline(xm$X, xm$Y, spar=0.55)
+lines(xm$X,fitted(mh),col="red",lwd=3)
+```
+
+
+
+Selanjutnya menunjukkan perbandingan estimasi dari kernel regresi, local polynomial regression dan spline regression.
+
+```{r plot semua}
+plot(X,Y,pch=20)
+lines(xGrid, mNW(x = xGrid, X = X, Y = Y, h = h2), col = "purple",lwd=3) #nadaraya
+lines(xm$X,fitted(mh),col="red",lwd=3) #spline
+lines(fit,col="blue",lwd=3) #localpoli
+legend("bottom", legend = c("Nadaraya-Watson","Spline","Locpoly"),col=c("purple","red","blue"),
+        lwd = 2,cex=0.8)
+
+```
+
+
+
+
+
+
+
